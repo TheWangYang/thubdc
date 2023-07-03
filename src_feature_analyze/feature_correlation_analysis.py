@@ -1,0 +1,146 @@
+from sklearn.impute import KNNImputer
+from xgboost import XGBClassifier
+from tqdm.auto import tqdm
+from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.metrics import roc_auc_score
+from joblib import Parallel, delayed
+from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.ensemble import RandomForestClassifier
+import pandas as pd
+import numpy as np
+import os
+import warnings
+import sys
+import csv
+
+warnings.filterwarnings('ignore')
+
+# 定义需要的函数
+def sScore(y_true, y_pred):
+    score = []
+    for i in range(num_classes):
+        score.append(roc_auc_score(y_true[:, i], y_pred[:, i]))
+
+    return score
+
+
+def processing_feature(file):
+    log, trace, metric, metric_df = pd.DataFrame(
+    ), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    if os.path.exists(f"./inputs/log/{file}_log.csv"):
+        log = pd.read_csv(
+            f"./inputs/log/{file}_log.csv").sort_values(by=['timestamp']).reset_index(drop=True)
+
+    if os.path.exists(f"./inputs/trace/{file}_trace.csv"):
+        trace = pd.read_csv(
+            f"./inputs/trace/{file}_trace.csv").sort_values(by=['timestamp']).reset_index(drop=True)
+
+    if os.path.exists(f"./inputs/metric/{file}_metric.csv"):
+        metric = pd.read_csv(
+            f"./inputs/metric/{file}_metric.csv").sort_values(by=['timestamp']).reset_index(drop=True)
+
+    feats = {"id": file}
+    if len(trace) > 0:
+        feats['trace_length'] = len(trace)
+        feats[f"trace_status_code_std"] = trace['status_code'].apply("std")
+
+        # 计算列的标准差
+        for stats_func in ['mean', 'std', 'skew', 'nunique']:
+            feats[f"trace_timestamp_{stats_func}"] = trace['timestamp'].apply(
+                stats_func)
+
+        for stats_func in ['nunique']:
+            for i in ['host_ip', 'service_name', 'endpoint_name', 'trace_id', 'span_id', 'parent_id', 'start_time', 'end_time']:
+                feats[f"trace_{i}_{stats_func}"] = trace[i].agg(stats_func)
+
+    else:
+        feats['trace_length'] = -1
+
+    if len(log) > 0:
+        feats['log_length'] = len(log)
+        log['message_length'] = log['message'].fillna("").map(len)
+        log['log_info_length'] = log['message'].map(
+            lambda x: x.split("INFO")).map(len)
+
+    else:
+        feats['log_length'] = -1
+
+    if len(metric) > 0:
+        feats['metric_length'] = len(metric)
+        feats['metric_value_timestamp_value_mean_std'] = metric.groupby(['timestamp'])[
+            'value'].mean().std()
+
+    else:
+        feats['metric_length'] = -1
+
+    return feats
+
+
+def gen_label(train):
+    col = np.zeros((train.shape[0], 9))
+    for i, label in enumerate(train['label'].values):
+        col[i][label] = 1
+
+    return col
+
+
+# -----------------------------------特征工程-------------------------------------
+# 得到所有id的长度
+all_ids = set([i.split("_")[0] for i in os.listdir("./inputs/metric/")]) |\
+    set([i.split("_")[0] for i in os.listdir("./inputs/log/")]) |\
+    set([i.split("_")[0] for i in os.listdir("./inputs/trace/")])
+all_ids = list(all_ids)
+print("IDs Length =", len(all_ids))
+
+# 从所有的log/trace/metric文件夹中提取特征
+feature = pd.DataFrame(Parallel(n_jobs=16, backend="multiprocessing")(
+    delayed(processing_feature)(f) for f in tqdm(all_ids)))
+
+
+# 获得所有训练标签
+label = pd.read_csv("./labels/training_label.csv")
+# 对标签进行编码
+lb_encoder = LabelEncoder()
+# 对标签中的source进行编码，并存储在label字典的'label'键对应的项目中
+label['label'] = lb_encoder.fit_transform(label['source'])
+
+# 将特征数据和标签数据进行合并，并按照'id'列进行连接。合并后的结果存储在all_data变量中，并将'id'列设置为索引列
+all_data = feature.merge(label[['id', 'label']].groupby(['id'], as_index=False)[
+                         'label'].agg(list), how='left', on=['id']).set_index("id")
+
+# 设置不使用的列名
+not_use = ['id', 'label']
+# 将其他使用的列名都作为特征
+feature_name = [i for i in all_data.columns if i not in not_use]
+# 从all_data中提取特征列，并对其中的无穷大值和负无穷大值进行替换和剪裁操作
+X = all_data[feature_name].replace([np.inf, -np.inf], 0).clip(-1e9, 1e9)
+print(f"Feature Length = {len(feature_name)}")
+print(f"Feature = {feature_name}")
+
+
+# --------------------------------特征重要性评估---------------------------------
+# 用于特征缩放
+scaler = StandardScaler()
+# 对特征数据进行缺失值填充、替换和缩放操作，得到缩放后的特征矩阵scaler_X
+scaler_X = scaler.fit_transform(X.fillna(0).replace([np.inf, -np.inf], 0))
+
+# 得到标签
+y = gen_label(all_data[all_data['label'].notnull()])
+# 提取有标签的特征矩阵（训练集）
+train_scaler_X = scaler_X[all_data['label'].notnull()]
+
+forest = RandomForestClassifier(n_estimators=100, random_state=42)
+forest.fit(train_scaler_X, y)
+
+importances = forest.feature_importances_
+indices = np.argsort(importances)[::-1]
+
+print("Feature ranking:")
+for f in range(len(feature_name)):
+    print(f"{f + 1}. {feature_name[indices[f]]} ({importances[indices[f]]})")

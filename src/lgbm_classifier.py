@@ -58,13 +58,26 @@ def processing_feature(file):
         feats['trace_length'] = len(trace)
         feats[f"trace_status_code_std"] = trace['status_code'].apply("std")
 
-        # 增加timestamp的统计特征
+        # 创造timestamp的统计特征
+        # ['count', 'nunique', 'sum', 'min', 'max', 'mean', 'std', 'sem', 'median', 'mad', 'var', 'skew']
+        # ['mean', 'std', 'skew', 'nunique']
+
         for stats_func in ['mean', 'std', 'skew', 'nunique']:
             feats[f"trace_timestamp_{stats_func}"] = trace['timestamp'].apply(
                 stats_func)
 
+        # 创造start_time的统计特征
+        for stats_func in ['count', 'nunique', 'sum', 'min', 'max', 'mean', 'std', 'sem', 'median', 'mad', 'var', 'skew']:
+            feats[f"trace_start_time_{stats_func}"] = trace['start_time'].apply(
+                stats_func)
+
+        # 创造end_time的统计特征
+        for stats_func in ['count', 'nunique', 'sum', 'min', 'max', 'mean', 'std', 'sem', 'median', 'mad', 'var', 'skew']:
+            feats[f"trace_end_time_{stats_func}"] = trace['end_time'].apply(
+                stats_func)
+
         for stats_func in ['nunique']:
-            for i in ['host_ip', 'service_name', 'endpoint_name', 'trace_id', 'span_id', 'parent_id', 'start_time', 'end_time']:
+            for i in ['host_ip', 'service_name', 'endpoint_name', 'trace_id', 'span_id', 'parent_id']:
                 feats[f"trace_{i}_{stats_func}"] = trace[i].agg(stats_func)
 
     else:
@@ -141,97 +154,47 @@ ovr_oof = np.zeros((len(train_scaler_X), num_classes))
 ovr_preds = np.zeros((len(test_scaler_X), num_classes))
 
 
-# # 设置lgbm分类器的参数字典，作为函数传值传入
-# params = {
-#     # 'boosting_type': 'gbdt',  # 提升方法类型，可以是'gbdt'、'dart'、'goss'、'rf'
-#     'num_leaves': 31,  # 叶子节点数，控制模型的复杂度
-#     'max_depth': 5,  # 树的最大深度，-1表示不限制
-#     'learning_rate': 0.1,  # 学习率
-#     'n_estimators': 100,  # 弱学习器的数量
-#     # 'subsample_for_bin': 200000,  # 用于构建直方图的样本数
-#     # 'objective': None,  # 损失函数类型
-#     # 'class_weight': None,  # 类别权重，用于处理不平衡数据集
-#     # 'min_split_gain': 0.0,  # 分割阈值的最小增益
-#     # 'min_child_weight': 0.001,  # 叶子节点的最小样本权重和
-#     # 'min_child_samples': 20,  # 叶子节点的最小样本数
-#     # 'subsample': 1.0,  # 训练每棵树时使用的样本比例
-#     # 'subsample_freq': 0,  # 子样本的频率
-#     # 'colsample_bytree': 1.0,  # 构建每棵树时使用的特征比例
-#     # 'reg_alpha': 0.1,  # L1正则化项参数
-#     # 'reg_lambda': 0.0,  # L2正则化项参数
-#     'random_state': 0,  # 随机种子
-#     'n_jobs': 64,  # 并行工作的数量
-#     # 'silent': True,  # 是否打印运行信息
-#     # 'importance_type': 'split',  # 特征重要性计算方式，可以是'split'或'gain'
-#     # 'early_stopping_rounds': None,  # 提前停止的轮数
-#     # 'eval_metric': None  # 评估指标
-# }
-
-
-# 定义参数字典
+# 设置lgbm分类器的参数字典，作为函数传值传入
 # best params：lr:0.05,max_depth:8,n_estimators:200
-# param_grid = {
-#     'estimator__n_estimators': [100, 200, 300],
-#     'estimator__max_depth': [4, 6, 8],
-#     'estimator__learning_rate': [0.1, 0.05, 0.01]
-# }
-
-best_params = {
-    'n_estimators': 200,
-    'learning_rate': 0.05,
-    'max_depth': 8
+params = {
+    # 'boosting_type': 'gbdt',  # 提升方法类型，可以是'gbdt'、'dart'、'goss'、'rf'
+    'num_leaves': 40,  # 叶子节点数，控制模型的复杂度
+    'max_depth': 10,  # 树的最大深度，-1表示不限制
+    'learning_rate': 0.05,  # 学习率
+    'n_estimators': 200,  # 弱学习器的数量
+    'subsample_for_bin': 200000,  # 用于构建直方图的样本数
+    'objective': None,  # 损失函数类型
+    'class_weight': None,  # 类别权重，用于处理不平衡数据集
+    'min_split_gain': 0.0,  # 分割阈值的最小增益
+    'min_child_weight': 0.001,  # 叶子节点的最小样本权重和
+    'min_child_samples': 30,  # 叶子节点的最小样本数
+    'subsample': 0.75,  # 训练每棵树时使用的样本比例
+    'subsample_freq': 0,  # 子样本的频率
+    'colsample_bytree': 0.9,  # 构建每棵树时使用的特征比例（降低有利于减少模型的过拟合）
+    'reg_alpha': 0.1,  # L1正则化项参数
+    'reg_lambda': 0.0,  # L2正则化项参数
+    'random_state': 0,  # 随机种子
+    'n_jobs': 64,  # 并行工作的数量
+    'silent': True,  # 是否打印运行信息
+    'importance_type': 'split',  # 特征重要性计算方式，可以是'split'或'gain'
+    'early_stopping_rounds': None,  # 提前停止的轮数
+    'eval_metric': None  # 评估指标
 }
+
 
 # 循环交叉验证
 for train_index, valid_index in kf.split(train_scaler_X, y):
     X_train, X_valid = train_scaler_X[train_index], train_scaler_X[valid_index]
     y_train, y_valid = y[train_index], y[valid_index]
 
-    # # --------------------使用GridSearchCV进行参数搜索------------------
-    # grid_search = GridSearchCV(
-    #     estimator=OneVsRestClassifier(
-    #         LGBMClassifier(random_state=0, n_jobs=64)),
-    #     param_grid=param_grid,
-    #     scoring='roc_auc',
-    #     cv=5,
-    #     verbose=1
-    # )
-
-    # # 使用训练数据进行参数搜索
-    # grid_search.fit(X_train, y_train)
-
-    # # 输出最佳参数组合和对应的性能指标
-    # print("Best parameters: ", grid_search.best_params_)
-    # print("Best AUROC score: ", grid_search.best_score_)
-
-    # # 使用最佳参数组合初始化分类器
-    # best_params = grid_search.best_params_
-    # # --------------------使用GridSearchCV进行参数搜索------------------
-
     # LGBM模型参数优化
-    clf = OneVsRestClassifier(lgb.LGBMClassifier(
-        random_state=0, n_jobs=64, **best_params))
+    clf = OneVsRestClassifier(lgb.LGBMClassifier(**params))
     clf.fit(X_train, y_train)
 
     ovr_oof[valid_index] = clf.predict_proba(X_valid)
     ovr_preds += clf.predict_proba(test_scaler_X) / n_splits
     score = sScore(y_valid, ovr_oof[valid_index])
     print(f"Score = {np.mean(score)}")
-
-
-# baseline kfold train and val
-# for train_index, valid_index in kf.split(train_scaler_X, y):
-#     X_train, X_valid = train_scaler_X[train_index], train_scaler_X[valid_index]
-#     y_train, y_valid = y[train_index], y[valid_index]
-
-#     # LGBM模型参数优化
-#     clf = OneVsRestClassifier(lgb.LGBMClassifier(random_state=0, n_jobs=64))
-#     # clf = OneVsRestClassifier(lgb.LGBMClassifier(**params))
-#     clf.fit(X_train, y_train)
-#     ovr_oof[valid_index] = clf.predict_proba(X_valid)
-#     ovr_preds += clf.predict_proba(test_scaler_X) / n_splits
-#     score = sScore(y_valid, ovr_oof[valid_index])
-#     print(f"Score = {np.mean(score)}")
 
 
 each_score = sScore(y, ovr_oof)
@@ -252,7 +215,7 @@ submit = submit.melt(id_vars="id", value_vars=lb_encoder.classes_,
 current_time = datetime.now().strftime("%Y%m%d%H%M")  # 格式化为年月日时分
 
 # 构造文件名
-file_name = f"lgbm_classifier_result_{current_time}.csv"
+file_name = f"lgbm_{current_time}_{np.mean(score_metric['score'])}.csv"
 
 # 保存为CSV文件
 submit.to_csv("/data1/wyy/projects/_competition/thubdc/results/" +

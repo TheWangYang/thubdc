@@ -129,7 +129,6 @@ ovr_preds = np.zeros((len(test_scaler_X), num_classes))
 for train_index, valid_index in kf.split(train_scaler_X, y):
     X_train, X_valid = train_scaler_X[train_index], train_scaler_X[valid_index]
     y_train, y_valid = y[train_index], y[valid_index]
-
     # RandomForestClassifier模型参数调优
     clf = OneVsRestClassifier(RandomForestClassifier(random_state=0, n_jobs=8))
     clf.fit(X_train, y_train)
